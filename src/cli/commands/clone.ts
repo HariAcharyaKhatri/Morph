@@ -1,5 +1,5 @@
-﻿import { Command } from 'commander';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { Command } from 'commander';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { log } from '../utils/logger.js';
 import { withSpinner } from '../utils/progress.js';
@@ -7,7 +7,7 @@ import { resolveConfig } from '../utils/resolve-config.js';
 import type { MorphConfig } from '../../config/schema.js';
 import type { CloneResult } from '../../core/types.js';
 
-async function writeNextjsScaffold(outputDir: string, globalsCSS: string): Promise<void> {
+async function writeNextjsScaffold(outputDir: string, globalsCSS: string, sourceStylesheets: string[] = []): Promise<void> {
   const files: Array<{ path: string; content: string }> = [
     {
       path: 'package.json',
@@ -92,6 +92,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        ${sourceStylesheets.map((href) => '        <link rel="stylesheet" href="' + href + '" />').join('\n')}
+      </head>
       <body>{children}</body>
     </html>
   );
@@ -260,7 +263,22 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
   // Generate runnable Next.js project scaffold
   if (config.output.framework === 'nextjs') {
     await withSpinner('Creating Next.js project files', async () => {
-      await writeNextjsScaffold(config.output.directory, designResult.globalsCSS);
+      const stylesheetDir = join(config.output.directory, 'public', 'styles');
+      let sourceStylesheets: string[] = [];
+
+      try {
+        sourceStylesheets = (await readdir(stylesheetDir))
+          .filter((name) => /^site-.*\.css$/i.test(name))
+          .map((name) => `/styles/${name}`);
+      } catch {
+        // No downloaded source stylesheets.
+      }
+
+      await writeNextjsScaffold(
+        config.output.directory,
+        designResult.globalsCSS,
+        sourceStylesheets
+      );
     });
   }
   // Phase 6: Audit (optional)
@@ -311,9 +329,35 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
 
 function insertSourceStyles(globalsCSS: string, sourceStyles: string): string {
   if (!sourceStyles.trim()) return globalsCSS;
-  const firstRule = globalsCSS.indexOf('\n', globalsCSS.lastIndexOf('@import '));
-  if (firstRule < 0) return `${sourceStyles}\n${globalsCSS}`;
-  return `${globalsCSS.slice(0, firstRule + 1)}\n/* Target website styles */\n${sourceStyles}\n${globalsCSS.slice(firstRule + 1)}`;
+
+  const splitImports = (css: string) => {
+    const imports: string[] = [];
+    const rules: string[] = [];
+
+    for (const line of css.split(/\r?\n/)) {
+      if (/^\s*@import\b/i.test(line)) {
+        imports.push(line.trim());
+      } else {
+        rules.push(line);
+      }
+    }
+
+    return { imports, rules: rules.join('\n').trim() };
+  };
+
+  const generated = splitImports(globalsCSS);
+  const target = splitImports(sourceStyles);
+  const imports = [...new Set([...generated.imports, ...target.imports])];
+
+  return [
+    ...imports,
+    '',
+    '/* Target website styles */',
+    target.rules,
+    '',
+    generated.rules,
+    '',
+  ].join('\n');
 }
 
 export const cloneCommand = new Command('clone')
@@ -340,7 +384,3 @@ export const cloneCommand = new Command('clone')
             process.exit(1);
     }
   });
-
-
-
-

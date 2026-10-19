@@ -4,6 +4,7 @@ import { downloadAssets, resolveAssetPath } from './downloader.js';
 import { extractFonts } from './fonts.js';
 import { extractVideos } from './videos.js';
 import { extractInlineSvgs } from './svgs.js';
+import { downloadStylesheets } from './stylesheets.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 
@@ -81,6 +82,17 @@ export async function runAssetPipeline(
     allAssets.push(...downloaded);
   }
 
+  // Download source stylesheets locally
+  if (config.assets.download) {
+    const stylesheetUrls = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]')]
+        .map((link) => link.href)
+        .filter((href) => href.startsWith('http:') || href.startsWith('https:'))
+    );
+
+    await downloadStylesheets(stylesheetUrls, outputDir);
+  }
+
   // Extract fonts
   const fonts = await extractFonts(page, outputDir);
   allAssets.push(...fonts);
@@ -101,35 +113,67 @@ export async function runAssetPipeline(
   return allAssets;
 }
 
-function generateIconsComponent(svgs: Array<{ name: string; svg: string }>): string {
+export function generateIconsComponent(svgs: Array<{ name: string; svg: string }>): string {
   const lines: string[] = [
-    '// Auto-extracted SVG icons from target site',
-    '',
+    "import type React from 'react';",
+    "",
+    "// Auto-extracted SVG icons from target site",
+    "",
   ];
+  const usedNames = new Set<string>();
 
   for (const { name, svg } of svgs) {
-    const componentName = toPascalCase(name) + 'Icon';
-    // Convert SVG attributes to JSX
+    const baseName = toPascalCase(name) || "Extracted";
+    let componentName = `${baseName}Icon`;
+    let suffix = 2;
+
+    while (usedNames.has(componentName)) {
+      componentName = `${baseName}Icon${suffix++}`;
+    }
+    usedNames.add(componentName);
+
     const jsxSvg = svg
-      .replace(/class=/g, 'className=')
-      .replace(/fill-rule=/g, 'fillRule=')
-      .replace(/clip-rule=/g, 'clipRule=')
-      .replace(/stroke-width=/g, 'strokeWidth=')
-      .replace(/stroke-linecap=/g, 'strokeLinecap=')
-      .replace(/stroke-linejoin=/g, 'strokeLinejoin=')
-      .replace(/xmlns:xlink=/g, 'xmlnsXlink=');
+      .replace(/\sclass=/g, " className=")
+      .replace(/\sfill-rule=/g, " fillRule=")
+      .replace(/\sclip-rule=/g, " clipRule=")
+      .replace(/\sstroke-width=/g, " strokeWidth=")
+      .replace(/\sstroke-linecap=/g, " strokeLinecap=")
+      .replace(/\sstroke-linejoin=/g, " strokeLinejoin=")
+      .replace(/\sfill-opacity=/g, " fillOpacity=")
+      .replace(/\sstroke-opacity=/g, " strokeOpacity=")
+      .replace(/\sxmlns:xlink=/g, " xmlnsXlink=")
+      .replace(/\sxlink:href=/g, " xlinkHref=")
+      .replace(/\sstyle="([^"]*)"/g, (_match, style: string) => {
+        const declarations = style
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => {
+            const separator = part.indexOf(":");
+            if (separator < 0) return null;
+            const property = part.slice(0, separator).trim();
+            const value = part.slice(separator + 1).trim();
+            const jsxProperty = property.replace(/-([a-z])/g, (_, letter: string) =>
+              letter.toUpperCase()
+            );
+            return `${jsxProperty}: ${JSON.stringify(value)}`;
+          })
+          .filter((part): part is string => part !== null);
+
+        return ` style={{ ${declarations.join(", ")} }}`;
+      })
+      .replace("<svg", "<svg {...props}");
 
     lines.push(`export function ${componentName}(props: React.SVGProps<SVGSVGElement>) {`);
-    lines.push(`  return (`);
-    lines.push(`    ${jsxSvg.replace('<svg', '<svg {...props}')}`);
-    lines.push(`  );`);
-    lines.push(`}`);
-    lines.push('');
+    lines.push("  return (");
+    lines.push(`    ${jsxSvg}`);
+    lines.push("  );");
+    lines.push("}");
+    lines.push("");
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
-
 function toPascalCase(str: string): string {
   return str
     .split(/[-_\s]+/)

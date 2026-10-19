@@ -7,10 +7,17 @@ import type {
   GeneratedFile,
 } from '../../core/types.js';
 import { load } from 'cheerio';
+import type { LinkResolver } from '../links/resolver.js';
+
+export interface StubGeneratorOptions {
+  resolver?: LinkResolver;
+  pageUrl?: string;
+}
 
 export async function generateComponentStubs(
   tree: ComponentTree,
-  outputDir: string
+  outputDir: string,
+  options?: StubGeneratorOptions
 ): Promise<GeneratedFile[]> {
   const files: GeneratedFile[] = [];
   const nodes = flattenTree(tree.root);
@@ -27,7 +34,7 @@ export async function generateComponentStubs(
   }
 
   for (const node of uniqueNodes.values()) {
-    const content = generateStub(node);
+    const content = generateStub(node, options);
     const filePath = join(outputDir, node.filePath);
 
     files.push({
@@ -46,7 +53,7 @@ export async function generateComponentStubs(
   return files;
 }
 
-function generateStub(node: ComponentNode): string {
+function generateStub(node: ComponentNode, options?: StubGeneratorOptions): string {
   const lines: string[] = [];
 
   if (node.isClient) {
@@ -91,7 +98,7 @@ function generateStub(node: ComponentNode): string {
 
   // Preserve the original HTML exactly once, including all descendants.
   if (node.html?.trim()) {
-    const safeHtml = sanitizeHtml(node.html);
+    const safeHtml = sanitizeHtml(node.html, options?.resolver, options?.pageUrl);
 
     if (safeHtml) {
       lines.push(
@@ -155,14 +162,14 @@ function escapeJsxText(text: string): string {
     .replace(/\}/g, '&#125;');
 }
 
-function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string, resolver?: LinkResolver, pageUrl?: string): string {
   const $ = load(html);
 
   // Remove elements that should not be injected into generated pages.
   $('script, iframe, object, embed, base').remove();
 
   $('*').each((_, element) => {
-    const attributes ='attribs' in element && element.attribs ? element.attribs : {};
+    const attributes = 'attribs' in element && element.attribs ? element.attribs : {};
 
     for (const name of Object.keys(attributes)) {
       const value = attributes[name] ?? '';
@@ -186,6 +193,63 @@ function sanitizeHtml(html: string): string {
       }
     }
   });
+
+  if (resolver) {
+    const pageContext = { currentPageUrl: pageUrl };
+
+    $('a[href], area[href]').each((_, el) => {
+      const raw = $(el).attr('href');
+      if (raw !== undefined) {
+        const resolved = resolver.resolveLink(raw, pageContext);
+        if (resolved.href) {
+          $(el).attr('href', resolved.href);
+        } else {
+          $(el).removeAttr('href');
+        }
+      }
+    });
+
+    $('svg a, a[xlink\\:href]').each((_, el) => {
+      const xlinkHref = $(el).attr('xlink:href');
+      if (xlinkHref !== undefined) {
+        const resolved = resolver.resolveLink(xlinkHref, pageContext);
+        if (resolved.href) {
+          $(el).attr('xlink:href', resolved.href);
+        } else {
+          $(el).removeAttr('xlink:href');
+        }
+      }
+      const href = $(el).attr('href');
+      if (href !== undefined) {
+        const resolved = resolver.resolveLink(href, pageContext);
+        if (resolved.href) {
+          $(el).attr('href', resolved.href);
+        } else {
+          $(el).removeAttr('href');
+        }
+      }
+    });
+
+    $('form[action]').each((_, el) => {
+      const raw = $(el).attr('action');
+      if (raw !== undefined && raw.trim() !== '') {
+        const resolved = resolver.resolveLink(raw, pageContext);
+        if (resolved.href) {
+          $(el).attr('action', resolved.href);
+        }
+      }
+    });
+
+    $('button[formaction], input[formaction]').each((_, el) => {
+      const raw = $(el).attr('formaction');
+      if (raw !== undefined && raw.trim() !== '') {
+        const resolved = resolver.resolveLink(raw, pageContext);
+        if (resolved.href) {
+          $(el).attr('formaction', resolved.href);
+        }
+      }
+    });
+  }
 
   return $('body').html() ?? $.root().html() ?? '';
 }

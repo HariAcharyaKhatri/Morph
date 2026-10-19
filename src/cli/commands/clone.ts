@@ -245,22 +245,62 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
     async () => {
       const { generateComponentStubs } = await import('../../generation/components/stub-generator.js');
       const { decomposeDOM } = await import('../../generation/components/decomposer.js');
-      const { BrowserManager } = await import('../../extraction/browser.js');
-      const browser = new BrowserManager();
-      try {
-        await browser.launch();
-        const page = await browser.newPage();
-        await page.goto(urls[0], { waitUntil: 'domcontentloaded', timeout: config.extraction.timeout });
-        const html = await page.content();
-        const tree = decomposeDOM(html, interactions);
-        return generateComponentStubs(tree, config.output.directory);
-      } finally {
-        await browser.close();
+      const { LinkResolver } = await import('../../generation/links/resolver.js');
+      const { routeToComponentName } = await import('../../generation/routes/generator.js');
+
+      const resolver = new LinkResolver({
+        sourceBaseUrl: urls[0],
+        routes: routes.routes,
+        framework: config.output.framework,
+      });
+
+      const componentFiles: Array<Awaited<ReturnType<typeof generateComponentStubs>>[number]> = [];
+
+      // Generate components for each crawled route that has HTML
+      for (const route of routes.routes) {
+        const html = route.html;
+        if (!html) continue;
+
+        const bodyName = route.path === '/'
+          ? 'PageBody'
+          : `${routeToComponentName(route.path)}Body`;
+
+        const tree = decomposeDOM(html, interactions, bodyName);
+        const files = await generateComponentStubs(tree, config.output.directory, {
+          resolver,
+          pageUrl: route.url,
+        });
+        componentFiles.push(...files);
       }
+
+      // If no crawled route had HTML, fallback to fetching urls[0] directly
+      if (componentFiles.length === 0) {
+        const { BrowserManager } = await import('../../extraction/browser.js');
+        const browser = new BrowserManager();
+        try {
+          await browser.launch();
+          const page = await browser.newPage();
+          await page.goto(urls[0], { waitUntil: 'domcontentloaded', timeout: config.extraction.timeout });
+          const html = await page.content();
+          const tree = decomposeDOM(html, interactions, 'PageBody');
+          const files = await generateComponentStubs(tree, config.output.directory, {
+            resolver,
+            pageUrl: urls[0],
+          });
+          componentFiles.push(...files);
+        } finally {
+          await browser.close();
+        }
+      }
+
+      return componentFiles;
     }
   );
 
-  // Generate runnable Next.js project scaffold
+  // Framework scaffold and transformation
+  const { getAdapter } = await import('../../generation/adapters/index.js');
+  const adapter = getAdapter(config.output.framework);
+
   if (config.output.framework === 'nextjs') {
     await withSpinner('Creating Next.js project files', async () => {
       const stylesheetDir = join(config.output.directory, 'public', 'styles');
@@ -279,6 +319,23 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
         designResult.globalsCSS,
         sourceStylesheets
       );
+    });
+  } else {
+    await withSpinner(`Creating ${config.output.framework} project files`, async () => {
+      const projectFiles = adapter.getProjectFiles(config);
+      for (const file of projectFiles) {
+        const fullPath = join(config.output.directory, file.path);
+        await mkdir(dirname(fullPath), { recursive: true });
+        await writeFile(fullPath, file.content, 'utf8');
+      }
+
+      const allFiles = [...routes.files, ...generatedFiles];
+      const transformedFiles = adapter.transform(allFiles, config);
+      for (const file of transformedFiles) {
+        const fullPath = join(config.output.directory, file.path);
+        await mkdir(dirname(fullPath), { recursive: true });
+        await writeFile(fullPath, file.content, 'utf8');
+      }
     });
   }
   // Phase 6: Audit (optional)

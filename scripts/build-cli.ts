@@ -7,7 +7,6 @@ await build({
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  banner: { js: '#!/usr/bin/env node' },
   outfile: 'dist/cli/index.js',
   external: [
     'commander',

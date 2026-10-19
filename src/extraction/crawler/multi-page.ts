@@ -37,6 +37,7 @@ export async function crawlSite(
         const meta = document.querySelector('meta[name="description"]');
         return meta?.getAttribute('content') || undefined;
       });
+      const html = await page.content();
 
       const route = mapUrlToRoute(current.url, baseUrl.origin);
       routes.push({
@@ -44,6 +45,7 @@ export async function crawlSite(
         title,
         description,
         isDistinct: true,
+        html,
       });
 
       // Discover links for next depth level

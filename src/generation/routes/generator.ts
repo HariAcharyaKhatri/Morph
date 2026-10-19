@@ -50,16 +50,35 @@ export async function generateRoutes(
 function generatePage(route: PageRoute, _config: MorphConfig): string {
   const componentName = routeToComponentName(route.path);
   const metadataExport = generateMetadata(route);
+  const bodyComponentName = route.path === '/' ? 'PageBody' : `${componentName}Body`;
 
-  return `import type { Metadata } from 'next';
-import { PageBody } from '@/components/PageBody';
+  if (route.html || route.path === '/') {
+    return `import type { Metadata } from 'next';
+import { ${bodyComponentName} } from '@/components/${bodyComponentName}';
 
 ${metadataExport}
 
 export default function ${componentName}Page() {
   return (
     <main className="min-h-screen">
-      <PageBody />
+      <${bodyComponentName} />
+    </main>
+  );
+}
+`;
+  }
+
+  return `import type { Metadata } from 'next';
+
+${metadataExport}
+
+export default function ${componentName}Page() {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center p-8">
+      <div className="max-w-xl text-center">
+        <h1 className="text-3xl font-bold">${route.title || componentName}</h1>
+        <p className="mt-4 text-muted-foreground">${route.description || `Page for ${route.path}`}</p>
+      </div>
     </main>
   );
 }
@@ -90,7 +109,7 @@ function generateLayout(route: PageRoute): string {
 `;
 }
 
-function routeToComponentName(path: string): string {
+export function routeToComponentName(path: string): string {
   if (path === '/') return 'Home';
 
   return path

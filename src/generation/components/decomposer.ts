@@ -1,11 +1,15 @@
 import type { ComponentTree, ComponentNode, InteractionMap } from '../../core/types.js';
 import { load } from 'cheerio';
 
-export function decomposeDOM(html: string, interactions: InteractionMap): ComponentTree {
-    const $ = load(html);
+export function decomposeDOM(
+  html: string,
+  interactions: InteractionMap,
+  rootComponentName: string = 'PageBody'
+): ComponentTree {
+  const $ = load(html);
 
   const body = $('body');
-  const root = walkElement($, body, interactions, 0);
+  const root = walkElement($, body, interactions, 0, rootComponentName);
 
   const allNodes = flattenTree(root);
   const clientCount = allNodes.filter((n) => n.isClient).length;
@@ -22,14 +26,15 @@ function walkElement(
   $: ReturnType<typeof import('cheerio').load>,
   el: ReturnType<ReturnType<typeof import('cheerio').load>>,
   interactions: InteractionMap,
-  depth: number
+  depth: number,
+  rootComponentName: string = 'PageBody'
 ): ComponentNode {
   const tagName = (el.prop('tagName') || 'div') as string;
   const className = el.attr('class') || '';
   const isSection = isSectionElement(tagName.toLowerCase(), className, depth);
 
   // Determine if this should be a component
-  const name = generateComponentName(tagName, className, depth);
+  const name = depth === 0 ? rootComponentName : generateComponentName(tagName, className, depth);
   const isClient = isClientComponent(el, interactions);
 
   const children: ComponentNode[] = [];
@@ -39,7 +44,7 @@ function walkElement(
     el.children().each((_: number, child: any) => {
       const $child = $(child);
       if ($child.prop('tagName')) {
-        const childNode = walkElement($, $child, interactions, depth + 1);
+        const childNode = walkElement($, $child, interactions, depth + 1, rootComponentName);
         if (childNode.name !== 'Unknown') {
           children.push(childNode);
         }

@@ -103,6 +103,7 @@ export interface PageRoute {
   isDistinct: boolean;
   template?: string;
   metadata?: Record<string, string>;
+  html?: string;
 }
 
 export interface ComponentNode {

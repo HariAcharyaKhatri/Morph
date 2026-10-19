@@ -54,26 +54,9 @@ function generateStub(node: ComponentNode): string {
     lines.push('');
   }
 
-  // Imports: remove duplicate child imports and avoid self-imports.
+  // Keep generated fragments self-contained. Their preserved HTML already
+  // contains descendants, so rendering child stubs here would duplicate them.
   lines.push("import { cn } from '@/lib/utils';");
-
-  const uniqueChildren = [
-    ...new Map(
-      node.children
-        .filter(
-          (child) =>
-            child.name !== 'Unknown' &&
-            child.name !== node.name
-        )
-        .map((child) => [child.name, child])
-    ).values(),
-  ];
-
-  for (const child of uniqueChildren) {
-    lines.push(
-      `import { ${child.name} } from '@/components/${child.name}';`
-    );
-  }
 
   lines.push('');
 
@@ -106,24 +89,7 @@ function generateStub(node: ComponentNode): string {
   lines.push('  return (');
   lines.push("    <section className={cn('', className)}>");
 
-  if (node.children.length > 0) {
-  const renderedChildren = [
-    ...new Map(
-      node.children
-        .filter(
-          (child) =>
-            child.name !== 'Unknown' &&
-            child.name !== node.name
-        )
-        .map((child) => [child.name, child])
-    ).values(),
-  ];
-
-  for (const child of renderedChildren) {
-    lines.push(`      <${child.name} />`);
-  }
-
-  // Preserve the original HTML content as well.
+  // Preserve the original HTML exactly once, including all descendants.
   if (node.html?.trim()) {
     const safeHtml = sanitizeHtml(node.html);
 
@@ -133,23 +99,12 @@ function generateStub(node: ComponentNode): string {
           safeHtml
         )} }} />`
       );
+    } else {
+      lines.push(`      {/* No safe HTML extracted for ${node.name} */}`);
     }
-  }
-} else if (node.html?.trim()) {
-  const safeHtml = sanitizeHtml(node.html);
-
-  if (safeHtml) {
-    lines.push(
-      `      <div dangerouslySetInnerHTML={{ __html: ${JSON.stringify(
-        safeHtml
-      )} }} />`
-    );
   } else {
-    lines.push(`      {/* No safe HTML extracted for ${node.name} */}`);
+    lines.push(`      {/* No content extracted for ${node.name} */}`);
   }
-} else {
-  lines.push(`      {/* No content extracted for ${node.name} */}`);
-}
   lines.push('    </section>');
   lines.push('  );');
   lines.push('}');

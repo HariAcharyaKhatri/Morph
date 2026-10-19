@@ -30,6 +30,7 @@ async function writeNextjsScaffold(outputDir: string, globalsCSS: string): Promi
           'tw-animate-css': '^1.4.0',
           'lucide-react': '^1.6.0',
           'class-variance-authority': '^0.7.1',
+          shadcn: '^4.1.0',
           '@base-ui/react': '^1.3.0',
           'react-hook-form': '^7.72.0',
           zod: '^4.3.6'
@@ -154,7 +155,7 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
   const designResult = await withSpinner(
     'Extracting design tokens',
     async () => {
-      const { extractDesignTokens } = await import('../../extraction/design-tokens/extractor.js');
+      const { extractDesignTokens, extractSourceStyles } = await import('../../extraction/design-tokens/extractor.js');
       const { BrowserManager } = await import('../../extraction/browser.js');
       const browser = new BrowserManager();
       try {
@@ -162,7 +163,8 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
         const page = await browser.newPage(config.extraction.viewports.find((v) => v.name === 'desktop'));
         await page.goto(urls[0], { waitUntil: 'domcontentloaded', timeout: config.extraction.timeout });
         const result = await extractDesignTokens(page, config);
-        return result;
+        const sourceStyles = await extractSourceStyles(page);
+        return { ...result, globalsCSS: insertSourceStyles(result.globalsCSS, sourceStyles) };
       } finally {
         await browser.close();
       }
@@ -305,6 +307,13 @@ export async function runClone(urls: string[], options: CloneOptions): Promise<C
     auditReport,
     duration,
   };
+}
+
+function insertSourceStyles(globalsCSS: string, sourceStyles: string): string {
+  if (!sourceStyles.trim()) return globalsCSS;
+  const firstRule = globalsCSS.indexOf('\n', globalsCSS.lastIndexOf('@import '));
+  if (firstRule < 0) return `${sourceStyles}\n${globalsCSS}`;
+  return `${globalsCSS.slice(0, firstRule + 1)}\n/* Target website styles */\n${sourceStyles}\n${globalsCSS.slice(firstRule + 1)}`;
 }
 
 export const cloneCommand = new Command('clone')

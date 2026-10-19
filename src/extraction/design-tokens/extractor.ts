@@ -15,6 +15,26 @@ export interface ExtractionResult {
   jsonReport: DesignTokenReport;
 }
 
+/** Preserve the target's authored CSS rules; design tokens alone cannot reproduce its layout. */
+export async function extractSourceStyles(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const imports = new Set<string>();
+    const inline: string[] = [];
+
+    document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]').forEach((link) => {
+      if (link.href && !link.href.startsWith('data:')) imports.add(link.href);
+    });
+    document.querySelectorAll('style').forEach((style) => {
+      if (style.textContent?.trim()) inline.push(style.textContent);
+    });
+
+    return [
+      ...[...imports].map((href) => `@import url(${JSON.stringify(href)});`),
+      ...inline,
+    ].join('\n');
+  });
+}
+
 export async function extractDesignTokens(
   page: Page,
   _config: MorphConfig

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 export interface StickyNavbarProps {
@@ -22,7 +23,7 @@ export function StickyNavbar({ className, brand = 'Morph', links = DEFAULT_LINKS
   return (
     <header className={cn('sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60', className)}>
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <a href="/" className="text-lg font-bold">{brand}</a>
+        <Link href="/" className="text-lg font-bold">{brand}</Link>
         <div className="hidden items-center gap-6 md:flex">
           {links.map((link) => (
             <a key={link.label} href={link.href} className="text-sm text-muted-foreground hover:text-foreground">{link.label}</a>

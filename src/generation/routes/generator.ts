@@ -52,18 +52,14 @@ function generatePage(route: PageRoute, _config: MorphConfig): string {
   const metadataExport = generateMetadata(route);
 
   return `import type { Metadata } from 'next';
+import { PageBody } from '@/components/PageBody';
 
 ${metadataExport}
 
 export default function ${componentName}Page() {
   return (
-    <main className="flex min-h-screen flex-col">
-      {/* TODO: Add extracted components for ${route.path} */}
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground">
-          ${route.title || componentName} — clone components go here
-        </p>
-      </div>
+    <main className="min-h-screen">
+      <PageBody />
     </main>
   );
 }

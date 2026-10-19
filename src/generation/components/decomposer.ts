@@ -1,8 +1,8 @@
 import type { ComponentTree, ComponentNode, InteractionMap } from '../../core/types.js';
+import { load } from 'cheerio';
 
 export function decomposeDOM(html: string, interactions: InteractionMap): ComponentTree {
-  const { load } = require('cheerio');
-  const $ = load(html);
+    const $ = load(html);
 
   const body = $('body');
   const root = walkElement($, body, interactions, 0);
@@ -54,12 +54,14 @@ function walkElement(
     reason: isClient ? 'Contains interactive elements' : undefined,
     props: [],
     children,
-    html: el.html()?.slice(0, 500),
+    html: el.html() ?? '',
   };
 }
 
 function isSectionElement(tag: string, className: string, depth: number): boolean {
-  const sectionTags = ['header', 'nav', 'main', 'section', 'article', 'aside', 'footer'];
+  const sectionTags = ['html', 'body', 'header', 'nav', 'main', 'section', 'article', 'aside', 'footer'];
+
+  if (tag === 'div' && depth < 3) return true;
   if (sectionTags.includes(tag)) return true;
   if (depth === 0 && tag === 'div') return true;
   if (className.match(/section|container|wrapper|hero|banner|cta|feature|pricing|testimonial|footer|header|nav/i)) {
@@ -68,17 +70,22 @@ function isSectionElement(tag: string, className: string, depth: number): boolea
   return false;
 }
 
-function generateComponentName(tag: string, className: string, _depth: number): string {
-  // Try to infer from class name
-  const meaningfulClasses = className.split(/\s+/).filter((cls) =>
-    cls.match(/^[a-zA-Z]/) && !cls.match(/^(flex|grid|block|hidden|relative|absolute|p-|m-|w-|h-|text-|bg-|border-)/)
-  );
+
+function generateComponentName(tag: string, className: string, depth: number): string {
+  const meaningfulClasses = className
+    .split(/\s+/)
+    .filter((cls) =>
+      /^[a-zA-Z]/.test(cls) &&
+      !/^(flex|grid|block|hidden|inline|relative|absolute|static|sticky|items-|justify-|content-|self-|place-|p-|px-|py-|pt-|pb-|pl-|pr-|m-|mx-|my-|mt-|mb-|ml-|mr-|w-|h-|min-|max-|text-|bg-|border-|rounded|shadow|gap-|space-|overflow-|z-|top-|left-|right-|bottom-|font-|leading-|tracking-|opacity-|transition|duration-|ease-|cursor-|sm:|md:|lg:|xl:|2xl:|hover:|focus:)/.test(cls)
+    );
 
   if (meaningfulClasses.length > 0) {
     return toPascalCase(meaningfulClasses[0]);
   }
 
   const tagMap: Record<string, string> = {
+    html: 'PageRoot',
+    body: 'PageBody',
     header: 'Header',
     nav: 'Navigation',
     main: 'MainContent',
@@ -86,6 +93,18 @@ function generateComponentName(tag: string, className: string, _depth: number): 
     article: 'Article',
     aside: 'Sidebar',
     footer: 'Footer',
+    div: `Section${depth}`,
+    h1: 'PageHeading',
+    h2: 'SectionHeading',
+    h3: 'Subheading',
+    p: 'Paragraph',
+    a: 'Link',
+    img: 'Image',
+    ul: 'List',
+    ol: 'OrderedList',
+    li: 'ListItem',
+    form: 'Form',
+    button: 'Button',
   };
 
   return tagMap[tag.toLowerCase()] || 'Unknown';
